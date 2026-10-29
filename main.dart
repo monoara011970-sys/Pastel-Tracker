@@ -1,170 +1,316 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest_all.dart' as tz;
-import 'package:fl_chart/fl_chart.dart';
+import 'package:table_calendar/table_calendar.dart';
 
-class NotificationService {
-  static final _plugin = FlutterLocalNotificationsPlugin();
+class NotifService {
+  static final _p = FlutterLocalNotificationsPlugin();
   static Future init() async {
     tz.initializeTimeZones();
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
-    await _plugin.initialize(const InitializationSettings(android: android));
+    await _p.initialize(const InitializationSettings(android: android));
   }
-  static Future _schedule(int id, int h, int m, String t, String b) async {
+  static Future sched(int id, int h, int m, String t, String b) async {
     final now = tz.TZDateTime.now(tz.local);
     var time = tz.TZDateTime(tz.local, now.year, now.month, now.day, h, m);
-    if(time.isBefore(now)) time = time.add(const Duration(days:1));
-    await _plugin.zonedSchedule(id, t, b, time,
-      const NotificationDetails(android: AndroidNotificationDetails('habit','Habits',importance: Importance.high)),
+    if (time.isBefore(now)) time = time.add(const Duration(days: 1));
+    await _p.zonedSchedule(
+      id, t, b, time,
+      const NotificationDetails(android: AndroidNotificationDetails('pastel_v2', 'Pastel Reminders', importance: Importance.max)),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.wallClockTime,
-      matchDateTimeComponents: DateTimeComponents.time);
+      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: DateTimeComponents.time,
+    );
   }
-  static Future setupAllReminders() async {
-    await _plugin.cancelAll();
-    await _schedule(1, 9, 0, "💧 Water", "Time to hydrate!");
-    await _schedule(2, 15, 0, "💧 Water", "Time to hydrate! - second reminder");
-    await _schedule(3, 21, 0, "💧 Water", "Time to hydrate! - last for today");
-    await _schedule(4, 15, 5, "💪 Workout", "Workout time - let's go! (3:05 PM)");
-    await _schedule(5, 18, 0, "📚 Reading", "Reading time");
-    await _schedule(6, 22, 0, "🌙 Sleep", "Wind down for sleep");
+  static Future scheduleAll() async {
+    await sched(1, 9, 0, 'Water 💧', '9 AM - Time to log water!');
+    await sched(2, 15, 0, 'Water 💧', '3 PM - Stay hydrated!');
+    await sched(3, 21, 0, 'Water 💧', '9 PM - Log your water!');
+    await sched(4, 17, 0, 'Workout 💪', '5 PM - Workout time!');
+    await sched(5, 18, 0, 'Reading 📚', '6 PM - Reading reminder!');
+    await sched(6, 22, 0, 'Sleep 🌙', '10 PM - Log sleep & wind down!');
   }
 }
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
-  await Hive.openBox('data');
-  await Hive.openBox('settings');
-  var settings = Hive.box('settings');
-  if(settings.get('customCats')==null) settings.put('customCats', []);
-  await NotificationService.init();
-  await NotificationService.setupAllReminders();
-  runApp(const App());
+  await Hive.openBox('daily');
+  await Hive.openBox('targets');
+  await Hive.openBox('custom_cats');
+  tz.initializeTimeZones();
+  await NotifService.init();
+  await NotifService.scheduleAll();
+  runApp(const PastelApp());
 }
 
-class App extends StatelessWidget {
-  const App({super.key});
-  @override Widget build(BuildContext context) {
-    return MaterialApp(debugShowCheckedModeBanner:false,
-      theme: ThemeData(scaffoldBackgroundColor:const Color(0xFFF8F7FF), useMaterial3:true),
-      home: const Home());
-  }
-}
-
-class Home extends StatefulWidget { const Home({super.key}); @override State<Home> createState()=>_HomeState(); }
-
-class _HomeState extends State<Home> {
-  DateTime selected = DateTime.now();
-  final box = Hive.box('data');
-  final settings = Hive.box('settings');
-  int tab = 0;
-  String keyFor(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
-  Map getDayData(DateTime d) => Map.from(box.get(keyFor(d), defaultValue: {}) as Map);
-  List get customCats => settings.get('customCats', defaultValue: []) as List;
-
-  @override Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(backgroundColor: Colors.white, elevation:0, title: const Text("Pastel Life Tracker", style:TextStyle(fontWeight:FontWeight.bold))),
-      body: SafeArea(child: tab==0 ? buildToday() : buildStats()),
-      bottomNavigationBar: BottomNavigationBar(currentIndex: tab, onTap:(i)=>setState(()=>tab=i), selectedItemColor: const Color(0xFF9A7DFF),
-        items: const [BottomNavigationBarItem(icon: Icon(Icons.today), label: 'Today'), BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: 'Stats')]),
-      floatingActionButton: tab==0 ? FloatingActionButton.extended(onPressed: _showAddCustomDialog, backgroundColor: const Color(0xFFE2D1F9), icon: const Icon(Icons.add), label: const Text("Add Category")) : null,
+class PastelApp extends StatelessWidget {
+  const PastelApp({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFFFB5C2), brightness: Brightness.light),
+        scaffoldBackgroundColor: const Color(0xFFFFF8F9),
+      ),
+      home: const Home(),
     );
   }
+}
 
-  Widget buildToday() {
-    final data = getDayData(selected);
-    return ListView(padding: const EdgeInsets.all(16), children: [
-      Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color:Colors.white, borderRadius:BorderRadius.circular(20)),
-        child: Column(children: [
-          Text(DateFormat('MMMM yyyy').format(selected), style: const TextStyle(fontWeight: FontWeight.bold, fontSize:18)),
-          const SizedBox(height:12),
-          SizedBox(height:65, child: ListView.builder(scrollDirection: Axis.horizontal, itemCount:14, itemBuilder:(c,i){
-            final d = DateTime.now().subtract(const Duration(days:7)).add(Duration(days:i));
-            final isSel = DateFormat('yyyy-MM-dd').format(d)==DateFormat('yyyy-MM-dd').format(selected);
-            return GestureDetector(onTap:()=>setState(()=>selected=d),
-              child: Container(margin: const EdgeInsets.symmetric(horizontal:6), padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color:isSel? const Color(0xFFE2D1F9): Colors.white, borderRadius:BorderRadius.circular(16), border:Border.all(color:const Color(0xFFF0F0F0))),
-                child: Column(children:[Text(DateFormat('E').format(d).substring(0,3), style:TextStyle(fontSize:11, color:isSel? Colors.black: Colors.grey)), Text("${d.day}", style: TextStyle(fontWeight:isSel? FontWeight.bold: FontWeight.normal))])));
-          }))
-        ])),
-      const SizedBox(height:16),
-      GridView.count(crossAxisCount:2, shrinkWrap:true, physics: const NeverScrollableScrollPhysics(), childAspectRatio:1.15, children:[
-        _card("Water", "${data['water']??0} / ${data['waterTarget']??8}", const Color(0xFFC9D9FF), Icons.water_drop, ()=>_editNumber("Water", "water", "waterTarget")),
-        _card("Food", "${(data['food'] as List?)?.length??0}/6", const Color(0xFFFFF2B2), Icons.restaurant, ()=>_editFood()),
-        _card("Sleep", "${data['sleep']??0} / ${data['sleepTarget']??8}h", const Color(0xFFE2D1F9), Icons.bedtime, ()=>_editNumber("Sleep","sleep","sleepTarget")),
-        _card("Workout", "${(data['workout'] as List?)?.length??0} muscles", const Color(0xFFC6F5D9), Icons.fitness_center, ()=>_editWorkout()),
-        _card("Meditation", "${data['meditation']??0} / ${data['medTarget']??20}m", const Color(0xFFFFDAB9), Icons.self_improvement, ()=>_editNumber("Meditation","meditation","medTarget")),
-        _card("Reading", "${data['reading']??0} / ${data['readTarget']??1}h", const Color(0xFFFFC8D2), Icons.menu_book, ()=>_editNumber("Reading","reading","readTarget")),
-        ...customCats.map((cat){
-          final name = cat['name']; final key = 'custom_$name';
-          return _card(name, "${data[key]??0} / ${cat['target']}", Color(cat['color']), Icons.star, ()=>_editNumber(name, key, null), isCustom:true, onLongPress:()=>_deleteCustom(name));
-        }).toList(),
+class Home extends StatefulWidget { const Home({super.key}); @override State<Home> createState()=>_HomeState();}
+class _HomeState extends State<Home> {
+  int idx=0;
+  final pages=[const TodayFullPage(), const CalendarPage(), const StatsFullPage(), const SettingsFullPage()];
+  @override Widget build(BuildContext context){
+    return Scaffold(
+      body: pages[idx],
+      bottomNavigationBar: NavigationBar(selectedIndex: idx, onDestinationSelected: (i)=>setState(()=>idx=i), destinations: const [
+        NavigationDestination(icon: Icon(Icons.today_rounded), label: 'Today'),
+        NavigationDestination(icon: Icon(Icons.calendar_month_rounded), label: 'Calendar'),
+        NavigationDestination(icon: Icon(Icons.bar_chart_rounded), label: 'Progress'),
+        NavigationDestination(icon: Icon(Icons.settings_rounded), label: 'Settings'),
       ]),
-    ]);
-  }
-
-  Widget buildStats(){
-    return ListView(padding: const EdgeInsets.all(16), children:[
-      Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color:Colors.white, borderRadius:BorderRadius.circular(20)),
-        child: const Column(children:[ Text("Weekly Progress", style:TextStyle(fontWeight:FontWeight.bold)), SizedBox(height:16), SizedBox(height:120, child: WeeklyChart())])),
-    ]);
-  }
-
-  Widget _card(String title, String sub, Color color, IconData icon, VoidCallback onTap, {bool isCustom=false, VoidCallback? onLongPress}){
-    return GestureDetector(onTap:onTap, onLongPress:onLongPress, child: Container(margin: const EdgeInsets.all(6), padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color:color, borderRadius:BorderRadius.circular(20)),
-      child: Column(mainAxisAlignment:MainAxisAlignment.center, children:[ Icon(icon, size:28), const SizedBox(height:6), Text(title, style:const TextStyle(fontWeight:FontWeight.bold, fontSize:13)), Text(sub, style:const TextStyle(fontSize:10), textAlign:TextAlign.center), if(isCustom) const Text("long-press to delete", style:TextStyle(fontSize:8)) ])));
-  }
-
-  void _editNumber(String title, String key, String? targetKey) {
-    final ctrl = TextEditingController(); final targetCtrl = TextEditingController();
-    showDialog(context: context, builder:(c)=>AlertDialog(title:Text(title), content:Column(mainAxisSize:MainAxisSize.min, children:[ TextField(controller:ctrl, keyboardType:TextInputType.number, decoration: InputDecoration(labelText: "Today's $title")), if(targetKey!=null) TextField(controller:targetCtrl, keyboardType:TextInputType.number, decoration: const InputDecoration(labelText:"Target")) ]), actions:[TextButton(onPressed:(){ final d=getDayData(this.selected); d[key]=double.tryParse(ctrl.text)??0; if(targetKey!=null && targetCtrl.text.isNotEmpty) d[targetKey]=double.tryParse(targetCtrl.text); box.put(keyFor(this.selected), d); setState((){}); Navigator.pop(c);}, child: const Text("Save"))]));
-  }
-  
-  void _editFood(){
-    final options = ["Healthy Carbs","Fibers","Protein","Micronutrients","No Sugar","No Junk Food"];
-    List selectedList = List.from((getDayData(selected)['food']??[]) as List);
-    showDialog(context: context, builder:(c)=>StatefulBuilder(builder:(c,setD)=>AlertDialog(title: const Text("Food Today"), content: Column(mainAxisSize:MainAxisSize.min, children: options.map((o)=>CheckboxListTile(dense:true, title:Text(o, style:const TextStyle(fontSize:13)), value:selectedList.contains(o), onChanged:(v){ setD((){ v! ? selectedList.add(o) : selectedList.remove(o);});})).toList(),), actions:[TextButton(onPressed:(){ final d=getDayData(this.selected); d['food']=selectedList; box.put(keyFor(this.selected), d); setState((){}); Navigator.pop(c);}, child: const Text("Save"))])));
-  }
-  
-  void _editWorkout(){
-    final options = ["Rest Day","Arms","Biceps","Triceps","Shoulder","Chest","Abs","Back","Legs","Glutes"];
-    List selectedList = List.from((getDayData(selected)['workout']??[]) as List);
-    showDialog(context: context, builder:(c)=>StatefulBuilder(builder:(c,setD)=>AlertDialog(title: const Text("Workout Today"), content: SingleChildScrollView(child: Column(mainAxisSize:MainAxisSize.min, children: options.map((o)=>CheckboxListTile(dense:true, title:Text(o, style:const TextStyle(fontSize:13)), value:selectedList.contains(o), onChanged:(v){ setD((){ v! ? selectedList.add(o) : selectedList.remove(o);});})).toList())), actions:[TextButton(onPressed:(){ final d=getDayData(this.selected); d['workout']=selectedList; box.put(keyFor(this.selected), d); setState((){}); Navigator.pop(c);}, child: const Text("Save"))])));
-  }
-
-  void _showAddCustomDialog(){
-    final nameCtrl = TextEditingController(); final targetCtrl = TextEditingController(text:"5");
-    Color picked = const Color(0xFFE2D1F9);
-    final colors = [0xFFC9D9FF, 0xFFFFF2B2, 0xFFE2D1F9, 0xFFC6F5D9, 0xFFFFDAB9, 0xFFFFC8D2].map((e)=>Color(e)).toList();
-    showDialog(context: context, builder:(c)=>StatefulBuilder(builder:(ctx,setD){
-      return AlertDialog(title: const Text("Add Custom Category"), content: Column(mainAxisSize:MainAxisSize.min, children:[
-        TextField(controller:nameCtrl, decoration: const InputDecoration(labelText:"Name (e.g., Study)")),
-        TextField(controller:targetCtrl, keyboardType:TextInputType.number, decoration: const InputDecoration(labelText:"Daily Target")),
-        const SizedBox(height:12), const Text("Pick color"), Wrap(children: colors.map((co)=>GestureDetector(onTap:(){ setD(()=>picked=co);}, child: Container(margin: const EdgeInsets.all(4), width:30, height:30, decoration: BoxDecoration(color:co, shape:BoxShape.circle, border:Border.all(width:picked==co?3:0))))).toList()),
-      ]), actions:[TextButton(onPressed:(){
-        if(nameCtrl.text.isEmpty) return;
-        final list = List.from(customCats);
-        list.add({'name':nameCtrl.text, 'target':targetCtrl.text, 'color':picked.value});
-        settings.put('customCats', list);
-        setState((){}); Navigator.pop(c);
-      }, child: const Text("Add"))]);
-    }));
-  }
-
-  void _deleteCustom(String name){
-    showDialog(context: context, builder:(c)=>AlertDialog(title:Text("Delete $name?"), actions:[TextButton(onPressed:(){ final list = List.from(customCats); list.removeWhere((e)=>e['name']==name); settings.put('customCats', list); setState((){}); Navigator.pop(c);}, child: const Text("Delete"))]));
+    );
   }
 }
 
-class WeeklyChart extends StatelessWidget {
-  const WeeklyChart({super.key});
-  @override Widget build(BuildContext context) {
-    return BarChart(BarChartData(gridData: const FlGridData(show:false), borderData: FlBorderData(show:false), titlesData: FlTitlesData(show:true, bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles:true, getTitlesWidget:(v,_)=>Text(['M','T','W','T','F','S','S'][v.toInt()], style:const TextStyle(fontSize:10))))), barGroups: List.generate(7, (i)=>BarChartGroupData(x:i, barRods:[BarChartRodData(toY:(3+i%3*2).toDouble(), width:12, color: const Color(0xFFC9D9FF), borderRadius:BorderRadius.circular(4))]))));
+String todayKey() => DateFormat('yyyy-MM-dd').format(DateTime.now());
+Map getDay(String k){ return Hive.box('daily').get(k, defaultValue: {}) as Map; }
+void saveDay(String k, Map m){ Hive.box('daily').put(k, m); }
+double getTarget(String cat, double def){ return (Hive.box('targets').get(cat, defaultValue: def) as num).toDouble(); }
+
+class TodayFullPage extends StatefulWidget { const TodayFullPage({super.key}); @override State<TodayFullPage> createState()=>_TodayFullPageState();}
+class _TodayFullPageState extends State<TodayFullPage> {
+  String date = todayKey();
+  @override Widget build(BuildContext context){
+    final day = getDay(date);
+    final customKeys = Hive.box('custom_cats').keys.toList();
+    return SafeArea(child: ListView(padding: const EdgeInsets.all(18), children: [
+      Text('Pastel Tracker 🌸', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+      Text(DateFormat('EEEE, MMM d').format(DateTime.parse(date)), style: const TextStyle(color: Colors.grey)),
+      const SizedBox(height: 16),
+      _sleepCard(day), const SizedBox(height: 14),
+      _waterCard(day), const SizedBox(height: 14),
+      _foodCard(day), const SizedBox(height: 14),
+      _workoutCard(day), const SizedBox(height: 14),
+      _meditationCard(day), const SizedBox(height: 14),
+      _readingCard(day), const SizedBox(height: 14),
+      // CUSTOM - COMPLETELY SEPARATE
+      Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(color: const Color(0xFFE0E8FF), borderRadius: BorderRadius.circular(22)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('✨ Other Categories', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+          const Text('Your own habits - totally separate', style: TextStyle(color: Colors.grey, fontSize: 12)),
+          const SizedBox(height: 12),
+          if(customKeys.isEmpty) const Text('No custom yet. Tap button below to add.'),
+          ...customKeys.map((c){
+            double v = (day['custom_$c'] ?? 0).toDouble();
+            return Card(child: ListTile(
+              title: Text(c.toString(), style: const TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Text('Today: $v'),
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                IconButton(icon: const Icon(Icons.remove), onPressed: ()=>_updateCustom(c.toString(), v-1)),
+                IconButton(icon: const Icon(Icons.add), onPressed: ()=>_updateCustom(c.toString(), v+1)),
+                IconButton(icon: const Icon(Icons.delete_outline, size:18), onPressed: (){ Hive.box('custom_cats').delete(c); setState((){}); }),
+              ]),
+            ));
+          }),
+        ]),
+      ),
+      const SizedBox(height: 12),
+      ElevatedButton.icon(onPressed: _addCategory, icon: const Icon(Icons.add), label: const Text('Add New Category')),
+      const SizedBox(height: 30),
+    ]));
+  }
+
+  Widget _pastelBox({required Color color, required Widget child}){
+    return Container(padding: const EdgeInsets.all(18), decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(22)), child: child);
+  }
+  Widget _sleepCard(Map day){
+    double target = getTarget('Sleep', 8);
+    double slept = (day['sleep'] ?? 0).toDouble();
+    return _pastelBox(color: const Color(0xFFE8E0FF), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        const Text('🌙 Sleep', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+        InkWell(onTap: ()=>_editTarget('Sleep', target), child: Text('Target: ${target}h ✏️', style: const TextStyle(color: Colors.grey))),
+      ]),
+      const SizedBox(height: 10),
+      LinearProgressIndicator(value: (slept/target).clamp(0,1), minHeight: 10, borderRadius: BorderRadius.circular(10)),
+      const SizedBox(height: 12),
+      Row(children: [Expanded(child: Text('${slept.toStringAsFixed(1)}h / ${target}h')), _smallBtn('-0.5', ()=>_updateSleep(slept-0.5)), const SizedBox(width: 6), _smallBtn('+0.5', ()=>_updateSleep(slept+0.5))]),
+    ]));
+  }
+  Widget _waterCard(Map day){
+    double target = getTarget('Water', 2000);
+    double drank = (day['water'] ?? 0).toDouble();
+    return _pastelBox(color: const Color(0xFFD6F0FF), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        const Text('💧 Water', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+        InkWell(onTap: ()=>_editTarget('Water', target), child: Text('Target: ${target.toInt()} ml ✏️', style: const TextStyle(color: Colors.grey))),
+      ]),
+      const SizedBox(height: 10),
+      LinearProgressIndicator(value: (drank/target).clamp(0,1), minHeight: 10, borderRadius: BorderRadius.circular(10), color: Colors.blueAccent),
+      const SizedBox(height: 12),
+      Row(children: [Expanded(child: Text('${drank.toInt()} / ${target.toInt()} ml')), _smallBtn('250', ()=>_updateWater(drank+250)), const SizedBox(width: 6), _smallBtn('500', ()=>_updateWater(drank+500))]),
+    ]));
+  }
+  Widget _foodCard(Map day){
+    Map food = day['food'] ?? {};
+    return _pastelBox(color: const Color(0xFFFFF0D6), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text('🍎 Food', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+      const SizedBox(height: 10),
+      ...['Healthy Carbs','Fibers','Protein','Micronutrients'].map((s)=> CheckboxListTile(
+        contentPadding: EdgeInsets.zero, dense: true, title: Text(s), value: food[s] ?? false,
+        onChanged: (v){ food[s]=v; _saveFood(food); },
+      )),
+      const Divider(),
+      SwitchListTile(title: const Text('No Sugar'), value: food['noSugar'] ?? false, onChanged: (v){ food['noSugar']=v; _saveFood(food); }),
+      SwitchListTile(title: const Text('No Junk Food'), value: food['noJunk'] ?? false, onChanged: (v){ food['noJunk']=v; _saveFood(food); }),
+    ]));
+  }
+  Widget _workoutCard(Map day){
+    Map w = day['workout'] ?? {};
+    List<String> parts = ['Rest Day','Arms','Biceps','Triceps','Shoulder','Chest','Abs','Back','Legs','Glutes'];
+    return _pastelBox(color: const Color(0xFFFFD6E0), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text('💪 Workout', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+      const SizedBox(height: 8),
+      Wrap(spacing: 8, runSpacing: 8, children: parts.map((p){
+        bool sel = w[p] ?? false;
+        return FilterChip(label: Text(p), selected: sel, onSelected: (v){ w[p]=v; _saveWorkout(w); });
+      }).toList()),
+    ]));
+  }
+  Widget _meditationCard(Map day){
+    double target = getTarget('Meditation', 20);
+    double done = (day['meditation'] ?? 0).toDouble();
+    return _pastelBox(color: const Color(0xFFD6FFE0), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        const Text('🧘 Meditation', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+        InkWell(onTap: ()=>_editTarget('Meditation', target), child: Text('Target: ${target.toInt()}m ✏️', style: const TextStyle(color: Colors.grey))),
+      ]),
+      const SizedBox(height: 8),
+      LinearProgressIndicator(value: (done/target).clamp(0,1), minHeight: 10, borderRadius: BorderRadius.circular(10)),
+      const SizedBox(height: 10),
+      Row(children: [Expanded(child: Text('${done.toInt()} / ${target.toInt()} min')), _smallBtn('+5', ()=>_updateMed(done+5)), const SizedBox(width:6), _smallBtn('+10', ()=>_updateMed(done+10))]),
+    ]));
+  }
+  Widget _readingCard(Map day){
+    double target = getTarget('Reading', 1);
+    double done = (day['reading'] ?? 0).toDouble();
+    return _pastelBox(color: const Color(0xFFFFE6CC), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        const Text('📚 Reading', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+        InkWell(onTap: ()=>_editTarget('Reading', target), child: Text('Target: ${target}h ✏️', style: const TextStyle(color: Colors.grey))),
+      ]),
+      const SizedBox(height: 8),
+      LinearProgressIndicator(value: (done/target).clamp(0,1), minHeight: 10, borderRadius: BorderRadius.circular(10)),
+      const SizedBox(height: 10),
+      Row(children: [Expanded(child: Text('$done / $target h')), _smallBtn('+0.5', ()=>_updateRead(done+0.5)), const SizedBox(width:6), _smallBtn('+1', ()=>_updateRead(done+1))]),
+    ]));
+  }
+
+  Widget _smallBtn(String t, VoidCallback f)=> ElevatedButton(onPressed: f, style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal:12)), child: Text(t, style: const TextStyle(fontSize:12)));
+
+  void _updateSleep(double v){ var m=getDay(date); m['sleep']=v.clamp(0,24); saveDay(date,m); setState((){}); }
+  void _updateWater(double v){ var m=getDay(date); m['water']=v.clamp(0,10000); saveDay(date,m); setState((){}); }
+  void _saveFood(Map f){ var m=getDay(date); m['food']=f; saveDay(date,m); setState((){}); }
+  void _saveWorkout(Map w){ var m=getDay(date); m['workout']=w; saveDay(date,m); setState((){}); }
+  void _updateMed(double v){ var m=getDay(date); m['meditation']=v; saveDay(date,m); setState((){}); }
+  void _updateRead(double v){ var m=getDay(date); m['reading']=v; saveDay(date,m); setState((){}); }
+  void _updateCustom(String n, double v){ var m=getDay(date); m['custom_$n']=v.clamp(0,1000); saveDay(date,m); setState((){}); }
+
+  void _editTarget(String cat, double cur) async {
+    final c = TextEditingController(text: cur.toString());
+    final res = await showDialog<String>(context: context, builder: (ctx)=> AlertDialog(title: Text('Target for $cat'), content: TextField(controller: c, keyboardType: TextInputType.number), actions: [TextButton(onPressed: ()=>Navigator.pop(ctx), child: const Text('Cancel')), TextButton(onPressed: ()=>Navigator.pop(ctx, c.text), child: const Text('Save'))]));
+    if(res!=null){ Hive.box('targets').put(cat, double.tryParse(res)??cur); setState((){}); }
+  }
+  void _addCategory() async {
+    final c = TextEditingController();
+    final res = await showDialog<String>(context: context, builder: (ctx)=> AlertDialog(title: const Text('New Category'), content: TextField(controller: c, decoration: const InputDecoration(hintText: 'e.g. Yoga, Steps, Skincare')), actions: [TextButton(onPressed: ()=>Navigator.pop(ctx), child: const Text('Cancel')), TextButton(onPressed: ()=>Navigator.pop(ctx, c.text), child: const Text('Add'))]));
+    if(res!=null && res.isNotEmpty){ Hive.box('custom_cats').put(res, true); setState((){}); }
+  }
+}
+
+class CalendarPage extends StatefulWidget { const CalendarPage({super.key}); @override State<CalendarPage> createState()=>_CalState();}
+class _CalState extends State<CalendarPage> {
+  DateTime focused = DateTime.now();
+  DateTime? selected;
+  @override Widget build(BuildContext context){
+    return SafeArea(child: Column(children: [
+      const SizedBox(height: 10),
+      Text('Calendar 🗓️', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+      TableCalendar(firstDay: DateTime.utc(2023,1,1), lastDay: DateTime.utc(2030,12,31), focusedDay: focused,
+        selectedDayPredicate: (d)=> isSameDay(selected, d),
+        onDaySelected: (s,f){ setState((){ selected=s; focused=f; }); },
+        calendarStyle: const CalendarStyle(todayDecoration: BoxDecoration(color: Color(0xFFFFB5C2), shape: BoxShape.circle)),
+        headerStyle: const HeaderStyle(formatButtonVisible: false, titleCentered: true),
+      ),
+      if(selected!=null) _dayDetail(DateFormat('yyyy-MM-dd').format(selected!)),
+    ]));
+  }
+  Widget _dayDetail(String key){
+    final m = getDay(key);
+    if(m.isEmpty) return Padding(padding: const EdgeInsets.all(20), child: Text('No data for $key'));
+    return Padding(padding: const EdgeInsets.all(16), child: Text('Details: Sleep ${m['sleep']??0}h, Water ${m['water']??0}ml, Reading ${m['reading']??0}h, Meditation ${m['meditation']??0}m'));
+  }
+}
+
+class StatsFullPage extends StatelessWidget {
+  const StatsFullPage({super.key});
+  List<FlSpot> _spots(String field){
+    List<FlSpot> s=[];
+    for(int i=6;i>=0;i--){
+      final d = DateTime.now().subtract(Duration(days: i));
+      final k = DateFormat('yyyy-MM-dd').format(d);
+      final m = getDay(k);
+      double v=0;
+      if(field=='water') v=(m['water']??0).toDouble();
+      if(field=='sleep') v=(m['sleep']??0).toDouble();
+      if(field=='reading') v=(m['reading']??0).toDouble();
+      if(field=='meditation') v=(m['meditation']??0).toDouble();
+      s.add(FlSpot((6-i).toDouble(), v));
+    }
+    return s;
+  }
+  @override Widget build(BuildContext context){
+    return SafeArea(child: ListView(padding: const EdgeInsets.all(18), children: [
+      Text('Progress 📊', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+      const Text('Weekly (last 7 days)'),
+      const SizedBox(height: 16),
+      _chartCard('💧 Water', _spots('water'), Colors.blue),
+      _chartCard('🌙 Sleep', _spots('sleep'), Colors.purple),
+      _chartCard('📚 Reading', _spots('reading'), Colors.orange),
+      _chartCard('🧘 Meditation', _spots('meditation'), Colors.green),
+    ]));
+  }
+  Widget _chartCard(String title, List<FlSpot> spots, Color col){
+    return Container(margin: const EdgeInsets.only(bottom:16), padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+      const SizedBox(height:12),
+      SizedBox(height: 180, child: LineChart(LineChartData(
+        gridData: const FlGridData(show: false), borderData: FlBorderData(show: false),
+        titlesData: const FlTitlesData(rightTitles: AxisTitles(sideTitles: SideTitles(showTitles:false)), topTitles: AxisTitles(sideTitles: SideTitles(showTitles:false))),
+        lineBarsData: [LineChartBarData(spots: spots, isCurved: true, color: col, barWidth: 3, dotData: const FlDotData(show:true))],
+      ))),
+    ]));
+  }
+}
+
+class SettingsFullPage extends StatelessWidget {
+  const SettingsFullPage({super.key});
+  @override Widget build(BuildContext context){
+    return SafeArea(child: Padding(padding: const EdgeInsets.all(18), child: Column(children: [
+      Text('Settings ⚙️', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+      const SizedBox(height:16),
+      const ListTile(title: Text('Reminders'), subtitle: Text('Water 9am,3pm,9pm | Workout 5pm | Reading 6pm | Sleep 10pm')),
+    ])));
   }
 }
